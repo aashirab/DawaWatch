@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ColdChain Guard – Medicine spoilage tracker</title>
+<link href="https://fonts.googleapis.com/css2?family=Instrument+Sans:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#eef4f6;--card:#fff;--ink:#12303a;--mute:#5d7882;--line:#d3e1e6;--ok:#1b8a5a;--warn:#c98a00;--bad:#c83a3a;--acc:#0e6e8c;--okbg:#e2f4ea;--warnbg:#fdf2d6;--badbg:#fbe3e3;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0d1e24;--card:#142c34;--ink:#e3f0f3;--mute:#8fb0ba;--line:#244650;--ok:#4fd197;--warn:#f0b73a;--bad:#ff7a7a;--acc:#5cc3e3;--okbg:#12382b;--warnbg:#3a2f10;--badbg:#411c1c}}
+:root[data-theme="dark"]{--bg:#0d1e24;--card:#142c34;--ink:#e3f0f3;--mute:#8fb0ba;--line:#244650;--ok:#4fd197;--warn:#f0b73a;--bad:#ff7a7a;--acc:#5cc3e3;--okbg:#12382b;--warnbg:#3a2f10;--badbg:#411c1c}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:'Instrument Sans',system-ui,sans-serif;line-height:1.45}
+.wrap{max-width:1000px;margin:0 auto;padding:18px 16px 40px}
+h1{font-size:1.5rem;margin:0}h2{font-size:1.05rem;margin:0 0 10px}
+.sub{color:var(--mute);margin:2px 0 16px;font-size:.92rem}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;margin-bottom:14px}
+.form{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:10px;align-items:end}
+label{font-size:.8rem;color:var(--mute);display:block;margin-bottom:3px}
+input,select{width:100%;padding:9px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+button{padding:9px 14px;border:0;border-radius:6px;background:var(--acc);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+button.ghost{background:transparent;color:var(--acc);border:1px solid var(--acc)}
+button:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--acc);outline-offset:2px}
+.tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
+.tabs button{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+.tabs button.on{background:var(--acc);color:#fff;border-color:var(--acc)}
+.batch{display:flex;gap:12px;justify-content:space-between;align-items:center;flex-wrap:wrap}
+.pill{display:inline-block;padding:3px 10px;border-radius:99px;font-size:.8rem;font-weight:700}
+.ok{background:var(--okbg);color:var(--ok)}.warn{background:var(--warnbg);color:var(--warn)}.bad{background:var(--badbg);color:var(--bad)}
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:10px}
+.crit{border:1px solid var(--line);border-left:5px solid var(--ok);border-radius:8px;padding:10px;background:var(--card)}
+.crit.pend{border-left-color:var(--line)}.crit.warn{border-left-color:var(--warn)}.crit.bad{border-left-color:var(--bad)}
+.crit b{font-size:.85rem;color:var(--mute);font-weight:600}.crit .v{font-size:1.15rem;font-weight:700}.crit .n{font-size:.8rem;color:var(--mute)}
+.alerts div{padding:8px 10px;border-radius:6px;margin-bottom:6px;font-size:.9rem}
+.meter{height:12px;border-radius:6px;background:var(--line);overflow:hidden;margin:6px 0}
+.meter i{display:block;height:100%}
+table{width:100%;border-collapse:collapse;font-size:.88rem}th,td{text-align:left;padding:8px;border-bottom:1px solid var(--line)}
+.scroll{overflow-x:auto}
+.note{font-size:.8rem;color:var(--mute)}
+.row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+</style></head><body><div class="wrap">
+<h1>ColdChain Guard</h1>
+<p class="sub">Add a received batch. The app shows the medicine's storage rules, checks expiry and shelf life, and raises alerts.</p>
+
+<div class="card"><h2>Receive a batch</h2>
+<div class="form">
+<div><label for="med">Medicine / vaccine</label><select id="med"></select></div>
+<div><label for="batch">Batch number</label><input id="batch" placeholder="e.g. B2409-17"></div>
+<div><label for="arr">Arrival date</label><input id="arr" type="date"></div>
+<div><label for="exp">Expiry on label (optional)</label><input id="exp" type="date"></div>
+<div><button id="add">Add batch</button></div></div>
+<p class="note" style="margin:8px 0 0">If expiry is empty, it is estimated from the medicine's typical shelf life.</p></div>
+
+<div class="tabs"><button class="on" data-t="track">Tracker</button><button data-t="fefo">FEFO dispatch order</button><button data-t="ref">Medicine rules</button></div>
+<div id="view"></div>
+<p class="note">Temperature, humidity, light, packaging and delay show each medicine's required limits; live alerts for them need a data-logger feed. Limits are typical values and must be verified against each manufacturer's label. Not a substitute for qualified pharmacist or QA judgement.</p>
+</div>
+<script>
+const DAY=864e5;
+const MEDS={
+"BCG":{t:[2,8],h:60,shelf:12,light:"high",freeze:true,note:"Protect from light; use within 4h of reconstitution"},
+"Hepatitis B":{t:[2,8],h:60,shelf:36,light:"med",freeze:true,note:"Never freeze"},
+"MMR":{t:[2,8],h:60,shelf:24,light:"high",freeze:false,note:"Light sensitive"},
+"Rotavirus":{t:[2,8],h:60,shelf:24,light:"med",freeze:true,note:"Keep refrigerated"},
+"OPV (Polio)":{t:[-25,-15],h:60,shelf:24,light:"low",freeze:false,note:"Store frozen at depots"},
+"mRNA COVID-19":{t:[-90,-60],h:50,shelf:9,light:"med",freeze:false,note:"Ultra-cold chain"},
+"Insulin":{t:[2,8],h:65,shelf:24,light:"med",freeze:true,note:"Do not freeze"}};
+const PLANNED_DAYS=3, LUX={low:200,med:120,high:60};
+let B=[];try{B=JSON.parse(localStorage.getItem("cc_b")||"[]")}catch(e){}
+const save=()=>{try{localStorage.setItem("cc_b",JSON.stringify(B))}catch(e){}};
+const $=id=>document.getElementById(id);
+const fmt=d=>new Date(d).toISOString().slice(0,10);
+$("med").innerHTML=Object.keys(MEDS).map(m=>`<option>${m}</option>`).join("");
+$("arr").value=fmt(Date.now());
+function rng(s){let h=2166136261;for(const c of s)h=Math.imul(h^c.charCodeAt(0),16777619);return()=>{h^=h<<13;h^=h>>>17;h^=h<<5;return((h>>>0)%10000)/10000}}
+function analyse(b){const m=MEDS[b.med],now=Date.now(),[lo,hi]=m.t,arr=new Date(b.arr).getTime();
+ const exp=b.exp?new Date(b.exp).getTime():arr+m.shelf*30.4*DAY*0.7;
+ const dLeft=Math.round((exp-now)/DAY),shelfPct=Math.max(0,Math.min(100,(exp-now)/(m.shelf*30.4*DAY)*100)),held=Math.max(0,Math.round((now-arr)/DAY));
+ const P=-1,c=[];
+ c.push({k:"Temperature",v:`${lo} to ${hi} °C`,n:"Required storage range · live check needs a logger feed",s:P});
+ c.push({k:"Expiry date",v:fmt(exp),n:`${dLeft} days left${b.exp?"":" (estimated)"}`,s:dLeft<=0?2:dLeft<=60?1:0});
+ c.push({k:"Shelf life left",v:Math.round(shelfPct)+"%",n:`Typical shelf life ${m.shelf} months · held ${held} days`,s:shelfPct<15?2:shelfPct<35?1:0});
+ c.push({k:"Transport delay",v:`Max ${PLANNED_DAYS} days`,n:"Expected transit time · actual delay needs shipment data",s:P});
+ c.push({k:"Humidity",v:`Max ${m.h}% RH`,n:"Storage limit · live check needs a logger feed",s:P});
+ c.push({k:"Light exposure",v:m.light==="high"?"Keep dark":m.light==="med"?"Limit light":"Low sensitivity",n:`Light sensitivity: ${m.light}`,s:P});
+ c.push({k:"Packaging",v:"Inspect on arrival",n:m.note,s:P});
+ const risk=dLeft<=0?100:shelfPct<15?70:shelfPct<35?40:10;
+ const lvl=dLeft<=0||risk>=60?2:risk>=30?1:0;
+ const al=[];c.forEach(x=>{if(x.s>0)al.push({s:x.s,t:`${x.k}: ${x.v} – ${x.n}`})});
+ if(lvl===2)al.unshift({s:2,t:dLeft<=0?"Batch has expired. Do not dispatch; quarantine and contact QA.":"Very little shelf life left. Dispatch first or quarantine."});
+ return{b,m,c,risk,lvl,exp,dLeft,al}}
+function badge(l){return `<span class="pill ${["ok","warn","bad"][l]}">${["Safe to use","Watch closely","Quarantine"][l]}</span>`}
+let tab="track";
+function render(){const A=B.map(analyse),v=$("view");
+ if(tab==="ref"){v.innerHTML=`<div class="card scroll"><table><tr><th>Medicine</th><th>Storage °C</th><th>Max RH</th><th>Shelf life</th><th>Light</th><th>Note</th></tr>${Object.entries(MEDS).map(([k,m])=>`<tr><td>${k}</td><td>${m.t[0]} to ${m.t[1]}</td><td>${m.h}%</td><td>${m.shelf} mo</td><td>${m.light}</td><td>${m.note}</td></tr>`).join("")}</table></div>`;return}
+ if(!A.length){v.innerHTML=`<div class="card">No batches yet. Pick a medicine, enter a batch number and arrival date, then choose Add batch.</div>`;return}
+ if(tab==="fefo"){const s=[...A].sort((p,q)=>p.exp-q.exp);
+  v.innerHTML=`<div class="card scroll"><h2>First Expired, First Out</h2><table><tr><th>Dispatch order</th><th>Medicine</th><th>Batch</th><th>Expiry</th><th>Days left</th><th>Status</th></tr>${s.map((a,i)=>`<tr><td>${i+1}${i===0?" (dispatch first)":""}</td><td>${a.b.med}</td><td>${a.b.batch}</td><td>${fmt(a.exp)}</td><td>${a.dLeft}</td><td>${a.lvl===2?'<span class="pill bad">Do not dispatch</span>':badge(a.lvl)}</td></tr>`).join("")}</table></div>`;return}
+ v.innerHTML=A.map((a,i)=>{const col=["var(--ok)","var(--warn)","var(--bad)"][a.lvl];return `<div class="card"><div class="batch"><div><h2 style="margin:0">${a.b.med} · Batch ${a.b.batch}</h2><span class="note">Received ${a.b.arr}</span></div>${badge(a.lvl)}</div>
+ <p style="margin:10px 0 0"><b>Time-based spoilage risk: ${a.risk}%</b></p><div class="meter"><i style="width:${a.risk}%;background:${col}"></i></div>
+ <div class="grid">${a.c.map(x=>`<div class="crit ${x.s<0?"pend":["","warn","bad"][x.s]}"><b>${x.k}</b><div class="v">${x.v}</div><div class="n">${x.n}</div></div>`).join("")}</div>
+ <div class="alerts" style="margin-top:12px">${a.al.length?a.al.map(x=>`<div class="${x.s===2?"bad":"warn"}">${x.s===2?"Alert":"Warning"}: ${x.t}</div>`).join(""):'<div class="ok">Expiry and shelf life are within limits.</div>'}</div>
+  <div class="row"><button class="ghost" data-d="${i}">Remove batch</button></div></div>`}).join("")}
+$("add").onclick=()=>{const b={med:$("med").value,batch:$("batch").value.trim(),arr:$("arr").value,exp:$("exp").value};
+ if(!b.batch||!b.arr){alert("Enter a batch number and arrival date.");return}
+ B.unshift(b);save();$("batch").value="";$("exp").value="";tab="track";sync();render()};
+document.querySelectorAll(".tabs button").forEach(x=>x.onclick=()=>{tab=x.dataset.t;sync();render()});
+function sync(){document.querySelectorAll(".tabs button").forEach(x=>x.classList.toggle("on",x.dataset.t===tab))}
+$("view").onclick=e=>{const d=e.target.dataset.d;
+ if(d!==undefined){B.splice(d,1);save();render()}};
+if(!B.length){B=[{med:"BCG",batch:"B2409-17",arr:fmt(Date.now()-2*DAY),exp:""},{med:"MMR",batch:"MM-7720",arr:fmt(Date.now()-9*DAY),exp:fmt(Date.now()+40*DAY)}]}
+render();
+</script></body></html>
